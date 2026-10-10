@@ -1,0 +1,234 @@
+_schema-version: 3.3.0
+ID: e_Learning
+version: 1.0.0
+description: "A simple CAP project."
+parameters:
+  enable-parallel-deployments: true
+  deploy_mode: html5-repo
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
+modules:
+  - name: e_Learning-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      instances: 1
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm-ci
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: e_Learning-auth
+      - name: e_Learning-db
+      - name: e_Learning-messaging
+      - name: e_Learning-connectivity
+      - name: e_Learning-destination
+
+  - name: e_Learning-db-deployer
+    type: hdb
+    path: db #gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: e_Learning-db
+  - name: e_Learning
+    type: approuter.nodejs
+    path: .deploy/app-router
+    parameters:
+      keep-existing-routes: true
+      disk-quota: 256M
+      memory: 256M
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api # must be used in xs-app.json as well
+          url: ~{srv-url}
+          forwardAuthToken: true
+      - name: e_Learning-auth
+      - name: e_Learning-destination
+      - name: e_Learning-html5-runtime
+      - name: e_Learning-portal
+    provides:
+      - name: app-api
+        properties:
+          app-protocol: ${protocol}
+          app-uri: ${default-uri}
+
+  - name: e_Learning-app-deployer
+    type: com.sap.application.content
+    path: gen
+    build-parameters:
+      build-result: app/
+      requires:
+        - name: e_Learningadminauthors
+          artifacts:
+            - admin-authors.zip
+          target-path: app/
+        - name: e_Learningadminbooks
+          artifacts:
+            - admin-books.zip
+          target-path: app/
+        - name: e_Learningbrowse
+          artifacts:
+            - browse.zip
+          target-path: app/
+        - name: e_Learninggenres
+          artifacts:
+            - genres.zip
+          target-path: app/
+    requires:
+      - name: e_Learning-auth
+      - name: srv-api
+      - name: e_Learning-html5-repo-host
+        parameters:
+          content-target: true
+          config:
+            HTML5Runtime_enabled: true
+
+  - name: e_Learningadminauthors
+    type: html5
+    path: app/admin-authors
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build
+      supported-platforms:
+        []
+  - name: e_Learningadminbooks
+    type: html5
+    path: app/admin-books
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build
+      supported-platforms:
+        []
+  - name: e_Learningbrowse
+    type: html5
+    path: app/browse
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build
+      supported-platforms:
+        []
+  - name: e_Learninggenres
+    type: html5
+    path: app/genres
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build
+      supported-platforms:
+        []
+
+  - name: e_Learning-portal-deployer
+    type: com.sap.application.content
+    path: app/portal
+    requires:
+      - name: e_Learning-portal
+        parameters:
+          content-target: true
+          service-key:
+            name: e_Learning-portal-key
+            config:
+              content-endpoint: developer
+      - name: e_Learning-auth
+      - name: e_Learning-html5-repo-host
+      - name: e_Learning-app-deployer
+    deployed-after:
+      - e_Learning-app-deployer
+  - name: notification-content-deployment
+    type: nodejs
+    path: gen/srv
+    parameters:
+      no-route: true
+      no-start: true
+      memory: 256MB
+      disk-quota: 1GB
+      tasks:
+        - name: notification-content-deployment
+          command: "node node_modules/@cap-js/notifications/lib/content-deployment.js"
+          memory: 256MB
+          disk-quota: 1GB
+    requires:
+      - name: e_Learning-destination
+
+resources:
+  - name: e_Learning-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: e_Learning-${org}-${space}
+        tenant-mode: dedicated
+        oauth2-configuration:
+          credential-types:
+            - "binding-secret"
+            - "x509"
+          redirect-uris:
+            - https://*~{app-api/app-uri}/**
+        role-collections:
+          - name: 'admin (e_Learning ${org}-${space})'
+            description: 'generated'
+            role-template-references:
+              - '$XSAPPNAME.admin'
+    requires:
+      - name: app-api
+    processed-after:
+      - e_Learning-messaging
+  - name: e_Learning-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+  - name: e_Learning-messaging
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: enterprise-messaging
+      service-plan: default
+      path: ./event-mesh.json
+  - name: e_Learning-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
+  - name: e_Learning-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  - name: e_Learning-html5-repo-host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+  - name: e_Learning-html5-runtime
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-runtime
+  - name: e_Learning-portal
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: portal
+      service-plan: standard

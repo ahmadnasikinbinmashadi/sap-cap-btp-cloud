@@ -1,0 +1,50 @@
+
+{
+  "name": "e-learning",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "E-Learning application built with SAP CAP and SAP HANA Cloud",
+  "scripts": {
+    "start": "cds-serve",
+    "build": "cds build --production",
+    "deploy:db": "cds deploy --to hana"
+  },
+  "dependencies": {
+    "@cap-js/hana": "^3",
+    "@cap-js/notifications": "*",
+    "@sap/cds": "^10",
+    "@sap/xssec": "^4",
+    "hdb": "^2.30.1"
+  },
+  "devDependencies": {
+    "@sap/cds-dk": "^10"
+  },
+  "cds": {
+    "build": {
+      "target": "gen",
+      "tasks": [
+        {
+          "for": "hana"
+        },
+        {
+          "for": "nodejs"
+        }
+      ]
+    },
+    "features": {
+      "[hybrid]": {
+        "notifications": false
+      }
+    },
+    "requires": {
+      "db": {
+        "kind": "hana-cloud"
+      },
+      "[hybrid]": {
+        "@cap-js/notifications": false,
+        "notifications": false
+      }
+    }
+  }
+}
